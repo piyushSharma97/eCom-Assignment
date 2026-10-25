@@ -1,113 +1,84 @@
 const Combo = require('../models/Combo');
-const Product = require('../models/Products');
-const getComboResult=(combos,products)=>{
- return combos.map(combo => {
-    const comboProductIds = combo.productIds.map(p => p._id.toString());
+const { priceCombo } = require('../services/pricing');
 
-    let totalDiscount = 0;
-    let total = 0;
-    let applicableProducts = [];
-    let comboApplicable = false;
-    combo.productIds.forEach(product => {
-      const productData = products.find(p => p._id.toString() === product._id.toString());
-
-      if (productData) {
-        applicableProducts.push(productData);
-
-        if (product.discountedPrice == null) {
-          const discount = (product.mainPrice * combo.comboDiscountPercentage) / 100;
-          totalDiscount += discount;
-          total += (product.mainPrice - discount);
-        } else {
-          totalDiscount += (product.mainPrice - product.discountedPrice);
-          total += product.discountedPrice;
-        }
-      }
-    });
-
-
-    const comboProductIdsSet = new Set(comboProductIds);
-    const isApplicable = comboProductIdsSet.size === applicableProducts.length;
-
-    if (isApplicable) {
-      comboApplicable = true;
-    }
-
-    return {
-      combo,
-      applicableProducts,
-      isApplicable: comboApplicable,
-      total,
-      totalDiscount
-    };
-  });
+function serializeCombo(combo) {
+  const products = combo.productIds || [];
+  const priced = priceCombo(products, combo.comboDiscountPercentage, 1);
+  return {
+    _id: combo._id,
+    name: combo.name || products.map((p) => p.name).filter(Boolean).join(' + '),
+    productIds: products,
+    comboDiscountPercentage: combo.comboDiscountPercentage,
+    isApplicable: products.length === 2 && products.every((p) => p && p._id),
+    ...priced,
+  };
 }
-// Get all combos
+
 exports.getCombos = async (req, res) => {
   try {
     const combos = await Combo.find().populate('productIds');
-    let allProductIds = [];
-
-
-    combos.forEach(combo => {
-      allProductIds = [...allProductIds, ...combo.productIds.map(p => p._id.toString())];
-    });
-
-    const products = await Product.find({ _id: { $in: allProductIds } });
-
-    const resultCombos  = getComboResult(combos,products)
-    const grandTotal = resultCombos.reduce((sum, combo) => sum + combo.total, 0);
-    const grandTotalDiscount = resultCombos.reduce((sum, combo) => sum + combo.totalDiscount, 0);
-
+    const resultCombos = combos.map(serializeCombo);
     res.json({
       combos: resultCombos,
-      grandTotal,
-      grandTotalDiscount
     });
-  
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
-// Create a new combo
 exports.createCombo = async (req, res) => {
-  const { productIds, comboDiscountPercentage } = req.body;
-  const combo = new Combo({ productIds, comboDiscountPercentage });
+  const { productIds, comboDiscountPercentage, name } = req.body;
   try {
+    if (!Array.isArray(productIds) || productIds.length !== 2) {
+      return res.status(400).json({ error: 'A combo must contain exactly two product IDs' });
+    }
+    const combo = new Combo({ productIds, comboDiscountPercentage, name });
     const newCombo = await combo.save();
-    res.status(201).json(newCombo);
+    const populated = await newCombo.populate('productIds');
+    res.status(201).json(serializeCombo(populated));
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Get combo by ID
 exports.getComboById = async (req, res) => {
   try {
     const combo = await Combo.findById(req.params.id).populate('productIds');
-    res.json(combo);
+    if (!combo) {
+      return res.status(404).json({ error: 'Combo not found' });
+    }
+    res.json(serializeCombo(combo));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Update a combo
 exports.updateCombo = async (req, res) => {
   try {
-    const updatedCombo = await Combo.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(updatedCombo);
+    if (req.body.productIds && req.body.productIds.length !== 2) {
+      return res.status(400).json({ error: 'A combo must contain exactly two product IDs' });
+    }
+    const updatedCombo = await Combo.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    }).populate('productIds');
+    if (!updatedCombo) {
+      return res.status(404).json({ error: 'Combo not found' });
+    }
+    res.json(serializeCombo(updatedCombo));
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Delete a combo
 exports.deleteCombo = async (req, res) => {
   try {
-    await Combo.findByIdAndDelete(req.params.id);
+    const deleted = await Combo.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Combo not found' });
+    }
     res.json({ message: 'Combo deleted' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ error: error.message });
   }
 };

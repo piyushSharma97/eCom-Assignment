@@ -1,189 +1,139 @@
 const Cart = require('../models/cart');
 const Combo = require('../models/Combo');
+const Product = require('../models/Products');
+const { priceCart } = require('../services/pricing');
 
-// Get the current cart
+const cartPopulate = [
+  {
+    path: 'items.product',
+    select: 'name mainPrice discountedPrice description picture sku',
+  },
+  {
+    path: 'combos.combo',
+    select: 'productIds comboDiscountPercentage name',
+    populate: {
+      path: 'productIds',
+      select: 'name mainPrice discountedPrice picture sku',
+    },
+  },
+];
+
+async function getOrCreateCart(sessionId) {
+  let cart = await Cart.findOne({ sessionId });
+  if (!cart) {
+    cart = await Cart.create({ sessionId, items: [], combos: [] });
+  }
+  return cart;
+}
+
+async function loadPricedCart(sessionId) {
+  const cart = await Cart.findOne({ sessionId }).populate(cartPopulate);
+  if (!cart) {
+    return { sessionId, items: [], combos: [], subtotalMain: 0, productDiscount: 0, comboDiscount: 0, totalDiscount: 0, total: 0, comboApplied: false };
+  }
+  return {
+    _id: cart._id,
+    sessionId: cart.sessionId,
+    ...priceCart(cart),
+  };
+}
+
 exports.getCart = async (req, res) => {
   try {
-    const cart = await Cart.findOne()
-      .populate({
-        path: 'items.product',
-        select: 'name mainPrice discountedPrice description picture', 
-      })
-      .populate({
-        path: 'combos.combo',
-        select: 'productIds comboDiscountPercentage',
-        populate: {
-          path: 'productIds',
-          select: 'name mainPrice discountedPrice picture',
-        },
-      })
-      .exec();
-      if (!cart) {
-        return res.status(404).json({ message: 'Cart not found' });
-      }
-      const items = cart.items.map(item => ({
-        product: item.product,
-        quantity: item.quantity,
-      }));
-      const combos = await Promise.all(
-        cart.combos.map(async (comboItem) => {
-          const combo = await Combo.findById(comboItem.combo).populate({
-            path: 'productIds',
-            select: 'name mainPrice discountedPrice picture',
-          });
-          const comboProductsDetails = combo.productIds.map((product, index) => ({
-            product,
-            quantity: comboItem.quantities[0],
-          }));
-          const totalComboPrice = comboProductsDetails.reduce((total, item) => {
-            const discountedPrice = item.product.discountedPrice || item.product.mainPrice;
-            return total + discountedPrice * item.quantity;
-          }, 0);
-          const discountPercentage = combo.comboDiscountPercentage;
-          const discountAmount = (totalComboPrice * discountPercentage) / 100;
-          const totalPriceAfterDiscount = totalComboPrice - discountAmount;
-          return {
-            combo,
-            comboProductsDetails,
-            totalComboPrice,
-            discountAmount,
-            totalPriceAfterDiscount
-          };
-        })
-      );
-      res.json({
-        items,
-        combos,
-      });
-  
+    await getOrCreateCart(req.sessionId);
+    const priced = await loadPricedCart(req.sessionId);
+    res.json(priced);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
-// Add item to cart
 exports.addItemToCart = async (req, res) => {
-
-  const { productId,quantity } = req.body;
+  const { productId, quantity } = req.body;
+  const qty = Number(quantity) > 0 ? Number(quantity) : 1;
   try {
-    let cart = await Cart.findOne();
-    if (!cart) {
-      cart = new Cart({ items: [] });
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
     }
-    const existingItem = cart.items.find(item => item.product.toString() === productId);
+    const cart = await getOrCreateCart(req.sessionId);
+    const existingItem = cart.items.find((item) => item.product.toString() === productId);
     if (existingItem) {
-      existingItem.quantity += quantity;
+      existingItem.quantity += qty;
     } else {
-      cart.items.push({ product: productId });
+      cart.items.push({ product: productId, quantity: qty });
     }
     await cart.save();
-    res.json(cart);
+    res.json(await loadPricedCart(req.sessionId));
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// Remove item from cart
 exports.removeItemFromCart = async (req, res) => {
   const { productId } = req.body;
   try {
-    const cart = await Cart.findOne();
-    cart.items = cart.items.filter(item => item.product.toString() !== productId);
+    const cart = await getOrCreateCart(req.sessionId);
+    cart.items = cart.items.filter((item) => item.product.toString() !== productId);
     await cart.save();
-    res.json(cart);
+    res.json(await loadPricedCart(req.sessionId));
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
+
 exports.removeComboFromCart = async (req, res) => {
   const { comboId } = req.body;
-  console.log('comboId',comboId)
   try {
-
-    const cart = await Cart.findOne();
-    console.log('cart',cart)
-    if (!cart) {
-      return res.status(404).json({ message: 'Cart not found' });
-    }
-    const comboItem = cart.combos.find(item => item.combo.equals(comboId));
+    const cart = await getOrCreateCart(req.sessionId);
+    const comboItem = cart.combos.find((item) => item.combo.equals(comboId));
     if (!comboItem) {
-      return res.status(404).json({ message: 'Combo not found in the cart' });
+      return res.status(404).json({ error: 'Combo not found in the cart' });
     }
-    cart.combos = cart.combos.filter(item => !item.combo.equals(comboId));
- 
+    cart.combos = cart.combos.filter((item) => !item.combo.equals(comboId));
     await cart.save();
-    res.json(cart);
-  }catch(error){
-      res.status(400).json({ message: error.message });
-  }
-
-}
-exports.addComboItems =async(req,res)=>{
-  const { comboId, quantities } = req.body;
-  try {
-    const combo = await Combo.findById(comboId).populate('productIds');
-    if (!combo) {
-      return res.status(404).json({ message: 'Combo not found' });
-    }
-
-    const cart = await Cart.findOne() || new Cart();
-    const existingComboItem = cart.combos.find(item => item.combo.equals(comboId));
-    if (existingComboItem) {
-      existingComboItem.quantities= [Number(existingComboItem.quantities)+Number(quantities)];
-    } else {
-      cart.combos.push({ combo: comboId, quantities });
-    }
-
-    await cart.save();
-    res.status(201).json(cart);
+    res.json(await loadPricedCart(req.sessionId));
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-}
-
-// Calculate cart total with combo discount
-exports.calculateCartTotal = async (req, res) => {
-  try {
-    const cart = await Cart.findOne()
-      .populate({
-        path: 'items.product',
-        select: 'name mainPrice discountedPrice',
-      })
-      .populate({
-        path: 'combos.combo',
-        populate: {
-          path: 'productIds',
-          select: 'name mainPrice discountedPrice'
-        },
-      })
-      .exec();
-
-    const combos = cart.combos
-
-    let total = 0;
-    let totalDiscount = 0;
-    let comboApplied = false;
-    cart.items.forEach(item => {
-      total += Number(((item.product.discountedPrice || item.product.mainPrice) * item.quantity).toFixed(2));
-    });
-    for (const comboItem of combos) {
-      const combo = comboItem.combo;
-      const comboTotalPrice = combo.productIds.reduce((sum, product) => {
-        return sum + (product.discountedPrice || product.mainPrice) * comboItem.quantities[0];
-      }, 0);
-    
-      // Calculate the discount for the combo
-      const discountPercentage = combo.comboDiscountPercentage;
-      const discountAmount = ((comboTotalPrice * discountPercentage) / 100);
-      total += Number(comboTotalPrice);
-    
-      totalDiscount += discountAmount;
-      comboApplied = true;
-    }
-    const finalTotal = (total - totalDiscount).toFixed(2);
-    totalDiscount = totalDiscount.toFixed(2);
-    res.json({ total: finalTotal, totalDiscount, comboApplied });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
+
+exports.addComboItems = async (req, res) => {
+  const { comboId, quantity } = req.body;
+  const qty = Number(quantity) > 0 ? Number(quantity) : 1;
+  try {
+    const combo = await Combo.findById(comboId);
+    if (!combo) {
+      return res.status(404).json({ error: 'Combo not found' });
+    }
+    const cart = await getOrCreateCart(req.sessionId);
+    const existingComboItem = cart.combos.find((item) => item.combo.equals(comboId));
+    if (existingComboItem) {
+      existingComboItem.quantity += qty;
+    } else {
+      cart.combos.push({ combo: comboId, quantity: qty });
+    }
+    await cart.save();
+    res.status(201).json(await loadPricedCart(req.sessionId));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.calculateCartTotal = async (req, res) => {
+  try {
+    await getOrCreateCart(req.sessionId);
+    const priced = await loadPricedCart(req.sessionId);
+    res.json({
+      total: priced.total,
+      totalDiscount: priced.totalDiscount,
+      comboDiscount: priced.comboDiscount,
+      comboApplied: priced.comboApplied,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.loadPricedCart = loadPricedCart;
+exports.getOrCreateCart = getOrCreateCart;

@@ -1,28 +1,40 @@
-This is a tech assignment 
-It is a small part of ecommer website , where we have CRUD operation for products and from available products we make combo kits which can have lower price from combined.
-Most of Logic is written in backend 
+# Combo Shop (MERN practical)
 
-# Combo Product Feature
+Product listing, product detail, and **two-product combos** with an extra discount. Guest cart and a **demo checkout** (no real payment).
 
-This project includes a feature for handling combo products, where purchasing two products together provides an additional discount. The backend uses Node.js with Express and MongoDB (using Mongoose), and the frontend uses React and Bootstrap.
-## Installation
+## Stack
 
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/piyushSharma97/eCom-Assignment.git
-   cd eCom-Assignment
- 2.
- # For backend
-cd backend
-npm install  
+- Backend: Node.js, Express, MongoDB, Mongoose
+- Frontend: React (Vite)
 
-#  For frontend
-cd ../frontend
+## Pricing
+
+- Unit price = `discountedPrice` if set, otherwise `mainPrice`
+- Combo of exactly two products: extra `%` off the sum of unit prices
+
+## Run
+
+MongoDB must be running locally (default `mongodb://127.0.0.1:27017/ecommerceStore`).
+
+```sh
+# Backend
+cd Assignment/eComBackend
+copy .env.example .env
 npm install
-
-# Run the node server
-
+npm run seed
 npm run dev
 
-# Run the Frontend
-npm start
+# Frontend (another terminal)
+cd Assignment/eComFrontend
+npm install
+npm run dev
+```
+
+- API: http://localhost:4380
+- UI: http://localhost:5173
+
+`npm test` in the backend folder runs combo pricing checks.
+
+## Demo payment
+
+Checkout **Pay now** creates an order and marks it paid. Nothing is charged. Cart is cleared for that browser session (`x-session-id` in `localStorage`).

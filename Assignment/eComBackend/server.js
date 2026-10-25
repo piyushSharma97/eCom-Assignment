@@ -1,40 +1,53 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const productsRoutes = require('./routes/productsRoutes')
-const cartRoutes = require('./routes/cartRoutes')
-const comboRoutes=require('./routes/comboRoutes')
+const productsRoutes = require('./routes/productsRoutes');
+const cartRoutes = require('./routes/cartRoutes');
+const comboRoutes = require('./routes/comboRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const { sessionId } = require('./middleware/session');
+const { errorHandler, notFound } = require('./middleware/errorHandler');
 
-const app = express()
-app.use(express.json())
-app.use(cors())
-mongoose.connect('mongodb://0.0.0.0:27017/ecommerceStore');
-// Get the default connection
-const db = mongoose.connection;
-
-// Bind connection to error event (to get notification of connection errors)
-db.on('error', console.error.bind(console, 'MongoDB connection error:'));
-// Bind connection to open event (to get notification of a successful connection)
-db.once('open', function() {
-  console.log('Connected to MongoDB successfully');
-});
-//qMUUWZ2bhYdnJKst
-const uploadsDir = path.join(__dirname, '../uploads');
+const app = express();
+const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.use(express.json());
+app.use(
+  cors({
+    origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+    exposedHeaders: ['x-session-id'],
+  })
+);
+app.use(sessionId);
+app.use('/uploads', express.static(uploadsDir));
 app.use('/api/products', productsRoutes);
 app.use('/api/combos', comboRoutes);
 app.use('/api/cart', cartRoutes);
-const PORT = process.env.port||4380;
+app.use('/api/orders', orderRoutes);
+app.use('/api/ai', aiRoutes);
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.use(notFound);
+app.use(errorHandler);
 
-app.listen(PORT,()=>{
-  console.log(`server is running on port ${PORT}`)
-})
+const PORT = process.env.PORT || 4380;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ecommerceStore';
 
-
-
-//mongodb+srv://piyush2107:qMUUWZ2bhYdnJKst@cluster0.9l44xip.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => {
+    console.log('Connected to MongoDB successfully');
+    app.listen(PORT, () => {
+      console.log(`server is running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  });

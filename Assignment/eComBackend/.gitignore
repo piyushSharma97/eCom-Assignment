@@ -1,2 +1,3 @@
-/npm_modules
-/uploads
+node_modules
+uploads
+.env
