@@ -41,11 +41,10 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productSchema.pre('save', async function (next) {
+productSchema.pre('save', async function () {
   if (!this.sku) {
     this.sku = await generateSKU(this.constructor);
   }
-  next();
 });
 
 module.exports = mongoose.model('Product', productSchema);

@@ -32,10 +32,15 @@ const productsData = [
   },
 ];
 
-async function seed() {
-  await mongoose.connect(MONGODB_URI);
-  await Product.deleteMany({});
-  await Combo.deleteMany({});
+async function seedDatabase({ reset = true } = {}) {
+  if (reset) {
+    await Product.deleteMany({});
+    await Combo.deleteMany({});
+  } else if ((await Product.countDocuments()) > 0) {
+    console.log('Catalog already has products; skip seed');
+    return;
+  }
+
   const products = [];
   for (const data of productsData) {
     products.push(await Product.create(data));
@@ -53,10 +58,19 @@ async function seed() {
     },
   ]);
   console.log('Seeded 4 products and 2 combos');
+}
+
+async function runCli() {
+  await mongoose.connect(MONGODB_URI);
+  await seedDatabase({ reset: true });
   await mongoose.disconnect();
 }
 
-seed().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  runCli().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { seedDatabase };

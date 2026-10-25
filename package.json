@@ -1,0 +1,18 @@
+{
+  "name": "ecom-assignment",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Combo shop — run frontend and backend together",
+  "scripts": {
+    "postinstall": "npm install --prefix Assignment/eComBackend && npm install --prefix Assignment/eComFrontend",
+    "mongo": "docker compose up -d mongo",
+    "dev": "node scripts/dev.js",
+    "start": "npm run build --prefix Assignment/eComFrontend && npm start --prefix Assignment/eComBackend",
+    "seed": "npm run seed --prefix Assignment/eComBackend",
+    "test": "npm test --prefix Assignment/eComBackend",
+    "deploy": "docker compose up --build -d"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
